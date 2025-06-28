@@ -1,17 +1,230 @@
+// RPG Game: Northern Blade RPG - Pocket Zone Style (Bosses, Dungeons, Story, Random Events)
+// Language: JavaScript (HTML5 Canvas Based)
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Northern Blade RPG</title>
-  <style>
-    body { background-color: black; color: white; margin: 0; overflow: hidden; }
-    canvas { display: block; margin: auto; background-color: #111; }
-  </style>
-</head>
-<body>
-  <script>
-  
-  </script>
-</body>
-</html>
+const canvas = document.createElement('canvas');
+document.body.appendChild(canvas);
+const ctx = canvas.getContext('2d');
+canvas.width = 800;
+canvas.height = 600;
+
+let gameState = JSON.parse(localStorage.getItem('northernBladeSave')) || {
+  screen: 'menu',
+  player: {
+    name: 'Jin Mu-Won',
+    hp: 100,
+    maxHp: 100,
+    level: 1,
+    xp: 0,
+    attack: 10,
+    defense: 5,
+    skills: ['Silent Sword'],
+    inventory: [],
+    equipment: { weapon: null, armor: null },
+    location: 'Northern Peaks',
+    quests: [],
+    gold: 0,
+    skillPoints: 0,
+    skillTree: { swordMastery: 0, resilience: 0 },
+    storyFlags: {}
+  },
+  enemies: [],
+  messages: [],
+};
+
+const locations = {
+  'Northern Peaks': ['Dark Forest', 'Abandoned Temple', 'Village Shop', 'Demon Dungeon'],
+  'Dark Forest': ['Northern Peaks'],
+  'Abandoned Temple': ['Northern Peaks'],
+  'Village Shop': ['Northern Peaks'],
+  'Demon Dungeon': ['Northern Peaks']
+};
+
+const enemiesByLocation = {
+  'Northern Peaks': [{ name: 'Snow Wolf', hp: 30, attack: 6, xp: 10, gold: 5 }],
+  'Dark Forest': [{ name: 'Forest Bandit', hp: 40, attack: 8, xp: 15, gold: 10 }],
+  'Abandoned Temple': [{ name: 'Demonic Cultist', hp: 50, attack: 12, xp: 25, gold: 15 }],
+  'Demon Dungeon': [
+    { name: 'Dungeon Ghoul', hp: 60, attack: 15, xp: 30, gold: 20 },
+    { name: 'Demon Lord', hp: 120, attack: 20, xp: 100, gold: 50, boss: true }
+  ]
+};
+
+const randomEvents = [
+  () => {
+    let g = Math.floor(Math.random() * 10) + 1;
+    gameState.player.gold += g;
+    gameState.messages.unshift(`You found a hidden pouch with ${g} gold!`);
+  },
+  () => {
+    let dmg = Math.floor(Math.random() * 5) + 1;
+    gameState.player.hp = Math.max(1, gameState.player.hp - dmg);
+    gameState.messages.unshift(`A trap hit you for ${dmg} damage!`);
+  },
+  () => {
+    if (!gameState.player.inventory.find(i => i.name === 'Health Tonic')) {
+      gameState.player.inventory.push({ name: 'Health Tonic', type: 'item', effect: 'heal' });
+      gameState.messages.unshift('You found a Health Tonic!');
+    }
+  }
+];
+
+function maybeTriggerRandomEvent() {
+  if (Math.random() < 0.3) {
+    let event = randomEvents[Math.floor(Math.random() * randomEvents.length)];
+    event();
+  }
+}
+
+function drawText(text, x, y) {
+  ctx.fillStyle = 'white';
+  ctx.font = '20px sans-serif';
+  ctx.fillText(text, x, y);
+}
+
+function drawScreen() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (gameState.screen === 'menu') {
+    drawText('Northern Blade RPG', 300, 100);
+    drawText('1. Start Game', 300, 150);
+  } else if (gameState.screen === 'game') {
+    const p = gameState.player;
+    drawText(`Location: ${p.location}`, 20, 40);
+    drawText(`HP: ${p.hp}/${p.maxHp} | Gold: ${p.gold}`, 20, 70);
+    drawText(`Level: ${p.level} XP: ${p.xp} SP: ${p.skillPoints}`, 20, 100);
+    drawText(`Weapon: ${p.equipment.weapon?.name || 'None'} | Armor: ${p.equipment.armor?.name || 'None'}`, 20, 130);
+
+    drawText('Options:', 20, 170);
+    drawText('1. Move', 20, 200);
+    drawText('2. Train (Fight Enemy)', 20, 230);
+    drawText('3. Inventory', 20, 260);
+    drawText('4. Quests', 20, 290);
+    drawText('5. Save Game', 20, 320);
+    drawText('6. Skill Tree', 20, 350);
+    if (p.location === 'Village Shop') drawText('7. Shop', 20, 380);
+
+    let y = 420;
+    gameState.messages.slice(0, 6).forEach(msg => {
+      drawText(msg, 20, y);
+      y += 30;
+    });
+  }
+}
+
+function handleInput(key) {
+  const p = gameState.player;
+  if (gameState.screen === 'menu') {
+    if (key === '1') gameState.screen = 'game';
+  } else if (gameState.screen === 'game') {
+    if (key === '1') {
+      let moves = locations[p.location];
+      gameState.messages.unshift('Where to move?');
+      moves.forEach((loc, i) => gameState.messages.unshift(`${i + 1}. ${loc}`));
+      gameState.awaitingMove = moves;
+    } else if (key === '2') fightEnemy();
+    else if (key === '3') showInventory();
+    else if (key === '4') showQuests();
+    else if (key === '5') { saveGame(); gameState.messages.unshift('Game Saved.'); }
+    else if (key === '6') gameState.screen = 'skills';
+    else if (key === '7' && p.location === 'Village Shop') gameState.screen = 'shop';
+    else if (gameState.awaitingMove) {
+      let index = parseInt(key) - 1;
+      if (gameState.awaitingMove[index]) {
+        p.location = gameState.awaitingMove[index];
+        gameState.messages.unshift(`Moved to ${p.location}`);
+        maybeTriggerRandomEvent();
+      }
+      gameState.awaitingMove = null;
+    }
+  }
+  drawScreen();
+}
+
+function fightEnemy() {
+  const p = gameState.player;
+  let enemies = enemiesByLocation[p.location];
+  if (!enemies || enemies.length === 0) return gameState.messages.unshift('No enemies here.');
+  let enemy = JSON.parse(JSON.stringify(enemies[Math.floor(Math.random() * enemies.length)]));
+  gameState.messages.unshift(`A wild ${enemy.name} appears!`);
+
+  while (enemy.hp > 0 && p.hp > 0) {
+    enemy.hp -= Math.max(p.attack - 2, 1);
+    if (enemy.hp <= 0) {
+      p.xp += enemy.xp;
+      p.gold += enemy.gold;
+      gameState.messages.unshift(`Defeated ${enemy.name}, gained ${enemy.xp} XP and ${enemy.gold} gold.`);
+      if (enemy.boss) gameState.messages.unshift('You have defeated a Boss!');
+      updateQuests(enemy.name);
+      updateGoldQuest();
+      levelUp();
+      return;
+    }
+    p.hp -= Math.max(enemy.attack - p.defense, 1);
+    if (p.hp <= 0) {
+      gameState.messages.unshift('You were defeated... Game Over.');
+      gameState.screen = 'menu';
+      Object.assign(p, { hp: p.maxHp, xp: 0, level: 1, gold: 0, quests: [], skillPoints: 0, inventory: [], equipment: { weapon: null, armor: null }, attack: 10, defense: 5 });
+      return;
+    }
+  }
+}
+
+function showInventory() {
+  const p = gameState.player;
+  let inv = p.inventory.map((item, i) => `${i + 1}. ${item.name}`).join(', ');
+  gameState.messages.unshift('Inventory: ' + (inv || 'Empty'));
+}
+
+function showQuests() {
+  const p = gameState.player;
+  if (p.quests.length === 0) {
+    p.quests = questList.map(q => JSON.parse(JSON.stringify(q)));
+    gameState.messages.unshift('Quests accepted.');
+  } else {
+    p.quests.forEach(q => {
+      const status = q.completed ? '✔' : `(${q.progress || q.amount || 0})`;
+      gameState.messages.unshift(`${q.title} ${status}`);
+    });
+  }
+}
+
+function updateQuests(enemyName) {
+  gameState.player.quests.forEach(q => {
+    if (q.target === enemyName && !q.completed) {
+      q.progress = (q.progress || 0) + 1;
+      if (q.progress >= q.count) q.completed = true;
+    }
+  });
+}
+
+function updateGoldQuest() {
+  let p = gameState.player;
+  p.quests.forEach(q => {
+    if (q.target === 'gold' && !q.completed) {
+      if (p.gold >= q.amount) q.completed = true;
+    }
+  });
+}
+
+function levelUp() {
+  const p = gameState.player;
+  let xpNeeded = p.level * 20;
+  if (p.xp >= xpNeeded) {
+    p.level++;
+    p.maxHp += 20;
+    p.hp = p.maxHp;
+    p.attack += 2;
+    p.defense += 1;
+    p.skillPoints++;
+    gameState.messages.unshift(`Level up! Now level ${p.level}`);
+  }
+}
+
+function saveGame() {
+  localStorage.setItem('northernBladeSave', JSON.stringify(gameState));
+}
+
+window.addEventListener('keydown', (e) => {
+  if ('0123456789'.includes(e.key)) handleInput(e.key);
+});
+
+drawScreen();
